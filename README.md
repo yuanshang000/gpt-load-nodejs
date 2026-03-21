@@ -11,7 +11,8 @@
 
 这是基于 Node.js + TypeScript 重构的 `gpt-load` 项目版本，目录独立于原 Go 版本：
 
-- 原项目：`gpt-load-main`
+- 原始 `gpt-load` 项目地址：[https://github.com/tbphp/gpt-load](https://github.com/tbphp/gpt-load)
+- 本地原项目目录：`gpt-load-main`
 - 重构版本：`gpt-load-nodejs`
 
 ## 当前重构范围
