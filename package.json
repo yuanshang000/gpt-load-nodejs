@@ -5,7 +5,7 @@
     "description": "Node.js refactor of gpt-load backend",
     "main": "dist/index.js",
     "scripts": {
-        "dev": "npm run dev:all",
+        "dev": "npm run dev:single",
         "dev:api": "tsx watch src/index.ts",
         "setup:web": "npm --prefix web install",
         "dev:web": "npm run setup:web && npm --prefix web run dev",

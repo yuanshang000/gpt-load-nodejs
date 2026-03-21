@@ -2,11 +2,13 @@
 
 ## Dev modes
 
-- Default (dual-port HMR): `npm run dev`
+- Default (single-port static mode): `npm run dev`
+  - serves frontend + API on `http://127.0.0.1:3001`
+- Single-port static mode (explicit): `npm run dev:single`
+  - builds `web/dist` first, then serves everything from `3001`
+- Dual-port HMR mode: `npm run dev:all`
   - API: `http://127.0.0.1:3001`
   - Web (Vite): `http://127.0.0.1:5173`
-- Single-port static mode: `npm run dev:single`
-  - builds `web/dist` first, then serves everything from `3001`
 
 ## Bolt deployment notes
 
