@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type Database from "better-sqlite3";
+import type { DatabaseLike } from "../db/sqlite-like.js";
 
 import type {
   HeaderRule,
@@ -69,14 +69,14 @@ type ConfigEventPayload = {
 };
 
 export class AppService {
-  private readonly db: Database.Database;
+  private readonly db: DatabaseLike;
   private readonly runtimeEncryptionKey: string;
   private readonly sharedStore: SharedStore;
   private readonly configEventChannel = "gpt-load:config:events";
 
   private readonly taskState: GlobalTaskState = { current: null };
 
-  constructor(db: Database.Database, runtimeEncryptionKey = "", sharedStore?: SharedStore) {
+  constructor(db: DatabaseLike, runtimeEncryptionKey = "", sharedStore?: SharedStore) {
     this.db = db;
     this.runtimeEncryptionKey = runtimeEncryptionKey;
     this.sharedStore =

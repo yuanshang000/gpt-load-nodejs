@@ -1,28 +1,346 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import Database from "better-sqlite3";
+import initSqlJs, { type Database as SqlJsDatabase, type SqlJsStatic } from "sql.js";
 
 import { nowIso } from "../lib/utils.js";
+import type { DatabaseLike, StatementLike } from "./sqlite-like.js";
 
-export class AppDatabase {
-  private readonly sqlite: Database.Database;
+const SQLITE_MAGIC = "SQLite format 3\u0000";
 
-  constructor(dbPath: string) {
-    const dir = path.dirname(dbPath);
-    fs.mkdirSync(dir, { recursive: true });
-    this.sqlite = new Database(dbPath);
-    this.sqlite.pragma("journal_mode = WAL");
-    this.sqlite.pragma("foreign_keys = ON");
-    this.initSchema();
-    this.seedDefaults();
+const normalizeParams = (args: unknown[]): unknown[] | Record<string, unknown> => {
+  if (args.length === 0) {
+    return [];
+  }
+  if (args.length === 1) {
+    const first = args[0];
+    if (Array.isArray(first)) {
+      return first;
+    }
+    if (first !== null && typeof first === "object" && !Buffer.isBuffer(first) && !ArrayBuffer.isView(first)) {
+      return first as Record<string, unknown>;
+    }
+    return [first];
+  }
+  return args;
+};
+
+const normalizeNamedBindings = (bindings: Record<string, unknown>): Record<string, unknown> => {
+  const normalized: Record<string, unknown> = {};
+  for (const [rawKey, value] of Object.entries(bindings)) {
+    const key = rawKey.replace(/^[:@$]/, "");
+    normalized[key] = value;
+    normalized[`:${key}`] = value;
+    normalized[`@${key}`] = value;
+    normalized[`$${key}`] = value;
+  }
+  return normalized;
+};
+
+class SqlJsPreparedStatement implements StatementLike {
+  private readonly db: SqlJsDatabase;
+  private readonly sql: string;
+  private readonly onMutate: () => void;
+
+  constructor(db: SqlJsDatabase, sql: string, onMutate: () => void) {
+    this.db = db;
+    this.sql = sql;
+    this.onMutate = onMutate;
   }
 
-  get db(): Database.Database {
-    return this.sqlite;
+  get(...args: unknown[]): Record<string, unknown> | undefined {
+    const statement = this.db.prepare(this.sql);
+    try {
+      const params = normalizeParams(args);
+      if (Array.isArray(params)) {
+        if (params.length > 0) {
+          statement.bind(params as any);
+        }
+      } else {
+        statement.bind(normalizeNamedBindings(params as Record<string, unknown>) as any);
+      }
+      if (!statement.step()) {
+        return undefined;
+      }
+      return statement.getAsObject() as Record<string, unknown>;
+    } finally {
+      statement.free();
+    }
+  }
+
+  all(...args: unknown[]): Array<Record<string, unknown>> {
+    const statement = this.db.prepare(this.sql);
+    try {
+      const params = normalizeParams(args);
+      if (Array.isArray(params)) {
+        if (params.length > 0) {
+          statement.bind(params as any);
+        }
+      } else {
+        statement.bind(normalizeNamedBindings(params as Record<string, unknown>) as any);
+      }
+
+      const rows: Array<Record<string, unknown>> = [];
+      while (statement.step()) {
+        rows.push(statement.getAsObject() as Record<string, unknown>);
+      }
+      return rows;
+    } finally {
+      statement.free();
+    }
+  }
+
+  run(...args: unknown[]): { changes: number; lastInsertRowid: number } {
+    const statement = this.db.prepare(this.sql);
+    try {
+      const params = normalizeParams(args);
+      if (Array.isArray(params)) {
+        statement.run(params as any);
+      } else {
+        statement.run(normalizeNamedBindings(params as Record<string, unknown>) as any);
+      }
+    } finally {
+      statement.free();
+    }
+
+    this.onMutate();
+
+    const changesRow = this.db.exec("SELECT changes() AS value");
+    const changesRaw = changesRow[0]?.values?.[0]?.[0];
+    const lastIdRow = this.db.exec("SELECT last_insert_rowid() AS value");
+    const lastIdRaw = lastIdRow[0]?.values?.[0]?.[0];
+
+    return {
+      changes: Number(changesRaw ?? 0),
+      lastInsertRowid: Number(lastIdRaw ?? 0),
+    };
+  }
+}
+
+class SqlJsCompatDatabase implements DatabaseLike {
+  private readonly db: SqlJsDatabase;
+  private readonly onMutate: () => void;
+
+  constructor(db: SqlJsDatabase, onMutate: () => void) {
+    this.db = db;
+    this.onMutate = onMutate;
+  }
+
+  prepare(sql: string): StatementLike {
+    return new SqlJsPreparedStatement(this.db, sql, this.onMutate);
+  }
+
+  exec(sql: string): void {
+    this.db.exec(sql);
+    const normalized = sql.trim().toUpperCase();
+    if (
+      normalized.startsWith("INSERT") ||
+      normalized.startsWith("UPDATE") ||
+      normalized.startsWith("DELETE") ||
+      normalized.startsWith("CREATE") ||
+      normalized.startsWith("ALTER") ||
+      normalized.startsWith("DROP") ||
+      normalized.startsWith("REPLACE") ||
+      normalized.startsWith("BEGIN") ||
+      normalized.startsWith("COMMIT") ||
+      normalized.startsWith("ROLLBACK")
+    ) {
+      this.onMutate();
+    }
+  }
+
+  pragma(sql: string): void {
+    this.db.exec(`PRAGMA ${sql};`);
+  }
+
+  transaction<T extends (...args: any[]) => any>(fn: T): T {
+    return ((...args: unknown[]) => {
+      this.db.exec("BEGIN");
+      try {
+        const result = fn(...args);
+        this.db.exec("COMMIT");
+        this.onMutate();
+        return result;
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+    }) as T;
   }
 
   close(): void {
+    this.db.close();
+  }
+
+  export(): Uint8Array {
+    return this.db.export();
+  }
+}
+
+const SNAPSHOT_TABLES = ["settings", "groups", "group_sub_groups", "api_keys", "request_logs", "task_status"] as const;
+type SnapshotTableName = (typeof SNAPSHOT_TABLES)[number];
+
+type DbSnapshot = {
+  version: number;
+  updated_at: string;
+  tables: Record<SnapshotTableName, Array<Record<string, unknown>>>;
+};
+
+export class AppDatabase {
+  private readonly sqlite: SqlJsCompatDatabase;
+  private readonly dataPath: string;
+  private flushTimer: NodeJS.Timeout | null = null;
+  private suspendFlush = true;
+
+  private constructor(dataPath: string, sqlJs: SqlJsStatic) {
+    this.dataPath = dataPath;
+    const dir = path.dirname(dataPath);
+    fs.mkdirSync(dir, { recursive: true });
+
+    const runtimeDatabase = this.createRuntimeDatabase(sqlJs, dataPath);
+    this.sqlite = new SqlJsCompatDatabase(runtimeDatabase, () => {
+      if (!this.suspendFlush) {
+        this.scheduleFlush();
+      }
+    });
+
+    this.sqlite.pragma("journal_mode = WAL");
+    this.sqlite.pragma("foreign_keys = ON");
+    this.initSchema();
+    this.loadFromJsonSnapshot();
+    this.seedDefaults();
+
+    this.suspendFlush = false;
+    this.flushToDisk();
+  }
+
+  static async create(dbPath: string): Promise<AppDatabase> {
+    const wasmPath = require.resolve("sql.js/dist/sql-wasm.wasm");
+    const SQL = await initSqlJs({
+      locateFile: () => wasmPath,
+    });
+    return new AppDatabase(dbPath, SQL);
+  }
+
+  private createRuntimeDatabase(sqlJs: SqlJsStatic, dataPath: string): SqlJsDatabase {
+    if (!fs.existsSync(dataPath)) {
+      return new sqlJs.Database();
+    }
+
+    try {
+      const raw = fs.readFileSync(dataPath);
+      const magic = raw.subarray(0, SQLITE_MAGIC.length).toString("utf8");
+      if (magic === SQLITE_MAGIC) {
+        return new sqlJs.Database(new Uint8Array(raw));
+      }
+    } catch {
+      return new sqlJs.Database();
+    }
+
+    return new sqlJs.Database();
+  }
+
+  get db(): DatabaseLike {
+    return this.sqlite;
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushTimer) {
+      return;
+    }
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flushToDisk();
+    }, 1000);
+  }
+
+  private loadFromJsonSnapshot(): void {
+    if (!fs.existsSync(this.dataPath)) {
+      return;
+    }
+
+    let parsed: DbSnapshot | null = null;
+    try {
+      const raw = fs.readFileSync(this.dataPath, "utf8").trim();
+      if (!raw.startsWith("{")) {
+        return;
+      }
+      const json = JSON.parse(raw) as Partial<DbSnapshot>;
+      if (!json || typeof json !== "object" || !json.tables || typeof json.tables !== "object") {
+        return;
+      }
+
+      parsed = {
+        version: Number(json.version ?? 1),
+        updated_at: typeof json.updated_at === "string" ? json.updated_at : nowIso(),
+        tables: {
+          settings: Array.isArray(json.tables.settings) ? json.tables.settings : [],
+          groups: Array.isArray(json.tables.groups) ? json.tables.groups : [],
+          group_sub_groups: Array.isArray(json.tables.group_sub_groups) ? json.tables.group_sub_groups : [],
+          api_keys: Array.isArray(json.tables.api_keys) ? json.tables.api_keys : [],
+          request_logs: Array.isArray(json.tables.request_logs) ? json.tables.request_logs : [],
+          task_status: Array.isArray(json.tables.task_status) ? json.tables.task_status : [],
+        },
+      };
+    } catch {
+      return;
+    }
+
+    if (!parsed) {
+      return;
+    }
+
+    const tx = this.sqlite.transaction(() => {
+      for (const table of SNAPSHOT_TABLES) {
+        const rows = parsed.tables[table];
+        if (!Array.isArray(rows) || rows.length === 0) {
+          continue;
+        }
+        this.sqlite.prepare(`DELETE FROM ${table}`).run();
+        for (const row of rows) {
+          if (!row || typeof row !== "object") {
+            continue;
+          }
+          const entries = Object.entries(row as Record<string, unknown>);
+          if (entries.length === 0) {
+            continue;
+          }
+          const columns = entries.map(([key]) => key);
+          const placeholders = columns.map(() => "?").join(",");
+          const values = entries.map(([, value]) => value);
+          this.sqlite.prepare(`INSERT INTO ${table} (${columns.join(",")}) VALUES (${placeholders})`).run(...values);
+        }
+      }
+    });
+    tx();
+  }
+
+  private buildSnapshot(): DbSnapshot {
+    return {
+      version: 1,
+      updated_at: nowIso(),
+      tables: {
+        settings: this.sqlite.prepare("SELECT * FROM settings").all() as Array<Record<string, unknown>>,
+        groups: this.sqlite.prepare("SELECT * FROM groups").all() as Array<Record<string, unknown>>,
+        group_sub_groups: this.sqlite.prepare("SELECT * FROM group_sub_groups").all() as Array<Record<string, unknown>>,
+        api_keys: this.sqlite.prepare("SELECT * FROM api_keys").all() as Array<Record<string, unknown>>,
+        request_logs: this.sqlite.prepare("SELECT * FROM request_logs").all() as Array<Record<string, unknown>>,
+        task_status: this.sqlite.prepare("SELECT * FROM task_status").all() as Array<Record<string, unknown>>,
+      },
+    };
+  }
+
+  private flushToDisk(): void {
+    const snapshot = this.buildSnapshot();
+    fs.writeFileSync(this.dataPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+  }
+
+  close(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.flushToDisk();
     this.sqlite.close();
   }
 
@@ -314,3 +632,4 @@ export class AppDatabase {
     tx();
   }
 }
+

@@ -32,7 +32,7 @@ export const config: AppConfig = {
   appUrl: process.env.APP_URL ?? "http://localhost:3001",
   authKey: process.env.AUTH_KEY ?? "sk-prod-change-this",
   encryptionKey: process.env.ENCRYPTION_KEY ?? "",
-  dbPath: resolveDbPath(process.env.DB_PATH ?? "./data/gpt-load.db"),
+  dbPath: resolveDbPath(process.env.DB_PATH ?? "./data/gpt-load-data.json"),
   webDistPath: path.resolve(process.cwd(), "web/dist"),
   redisUrl: process.env.REDIS_URL ?? "",
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX ?? 500),

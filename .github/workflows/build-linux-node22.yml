@@ -42,14 +42,9 @@ jobs:
       - name: Rebuild all web native modules from source
         run: npm --prefix web rebuild --build-from-source
 
-      - name: Ensure better-sqlite3 built from source
-        run: npm rebuild better-sqlite3 --build-from-source
-
       - name: Verify native binaries (root + web)
         run: |
           set -e
-          echo "[root native modules]"
-          find node_modules/better-sqlite3 -name "*.node" -print
           echo "[all root *.node files]"
           find node_modules -name "*.node" -print || true
           echo "[all web *.node files]"

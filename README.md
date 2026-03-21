@@ -10,7 +10,7 @@
 
 ## Bolt deployment notes
 
-- Use Node `20.x` (Node 22 on Linux often misses prebuilt `better-sqlite3` bindings)
+- Supports Node `22.x` on Bolt (no native sqlite binding required)
 - Run single-port mode on Bolt: `npm run dev:bolt`
 - `dev:web`/`build:web` now auto-install `web` dependencies before running
 
@@ -32,7 +32,7 @@
 ## 当前重构范围
 
 - 后端框架：`Fastify`
-- 数据存储：`SQLite (better-sqlite3)`
+- 数据存储：`本地 JSON 持久化（默认 ./data/gpt-load-data.json）`
 - 前端静态托管：后端可直接托管 `web/dist`（构建后可访问 `/`）
 - 可选 Redis：跨实例任务状态与分布式锁（`REDIS_URL`）
 - 已实现核心接口：

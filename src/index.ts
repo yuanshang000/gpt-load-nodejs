@@ -17,7 +17,7 @@ import { AppService } from "./services/app-service.js";
 import { createSharedStore } from "./store/factory.js";
 
 const start = async (): Promise<void> => {
-  const database = new AppDatabase(config.dbPath);
+  const database = await AppDatabase.create(config.dbPath);
   const sharedStore = await createSharedStore(config.redisUrl);
   const service = new AppService(database.db, config.encryptionKey, sharedStore);
 
@@ -119,13 +119,13 @@ const start = async (): Promise<void> => {
   await app.listen({ host: config.host, port: config.port });
 };
 
-const runCommand = (): number => {
+const runCommand = async (): Promise<number> => {
   const [command, ...args] = process.argv.slice(2);
   if (!command) {
     return -1;
   }
 
-  const database = new AppDatabase(config.dbPath);
+  const database = await AppDatabase.create(config.dbPath);
   try {
     const service = new AppService(database.db, config.encryptionKey);
     if (command === "migrate-keys") {
@@ -144,12 +144,14 @@ const runCommand = (): number => {
   }
 };
 
-const exitCode = runCommand();
-if (exitCode >= 0) {
-  process.exit(exitCode);
-}
-
-start().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+runCommand()
+  .then(async (exitCode) => {
+    if (exitCode >= 0) {
+      process.exit(exitCode);
+    }
+    await start();
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
