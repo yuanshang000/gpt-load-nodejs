@@ -1127,6 +1127,12 @@ export class AppService {
   private async validateKeyAgainstUpstream(group: GroupModel, apiKey: string): Promise<{ isValid: boolean; error: string }> {
     try {
       const requestConfig = this.buildValidationRequest(group, apiKey);
+      const startedAt = Date.now();
+      if (process.env.NODE_ENV !== "production") {
+        console.info(
+          `[key-validation] request group=${group.name} method=${requestConfig.method} url=${requestConfig.url}`,
+        );
+      }
       const timeoutSeconds = safeNumber(
         (group.config.key_validation_timeout_seconds as number | undefined) ?? undefined,
         Number(this.getSettingValue("key_validation_timeout_seconds", "20")),
@@ -1147,15 +1153,29 @@ export class AppService {
       }
 
       if (response.status < 400) {
+        if (process.env.NODE_ENV !== "production") {
+          console.info(
+            `[key-validation] response group=${group.name} status=${response.status} duration_ms=${Date.now() - startedAt}`,
+          );
+        }
         return { isValid: true, error: "" };
       }
 
       const bodyText = await response.text();
+      if (process.env.NODE_ENV !== "production") {
+        console.info(
+          `[key-validation] response group=${group.name} status=${response.status} duration_ms=${Date.now() - startedAt}`,
+        );
+      }
       return {
         isValid: false,
         error: bodyText ? bodyText.slice(0, 255) : `status:${response.status}`,
       };
     } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        const message = error instanceof Error ? error.message : "validation error";
+        console.info(`[key-validation] error group=${group.name} message=${message}`);
+      }
       return {
         isValid: false,
         error: error instanceof Error ? error.message.slice(0, 255) : "validation error",
@@ -1210,7 +1230,7 @@ export class AppService {
 
             let isValid = false;
             let validationError = "invalid key format";
-            if (plainKey.length > 12) {
+            if (plainKey.trim().length > 0) {
               const checkResult = await this.validateKeyAgainstUpstream(group, plainKey);
               isValid = checkResult.isValid;
               validationError = checkResult.error;
@@ -1247,7 +1267,7 @@ export class AppService {
     const results = await Promise.all(keys.map(async (key) => {
       let isValid = false;
       let error = "invalid key format";
-      if (key.length > 12) {
+      if (key.trim().length > 0) {
         const checkResult = await this.validateKeyAgainstUpstream(group, key);
         isValid = checkResult.isValid;
         error = checkResult.error;

@@ -24,6 +24,8 @@ const start = async (): Promise<void> => {
   const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 });
   await app.register(helmet, {
     global: true,
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
   });
 
   await app.register(rateLimit, {

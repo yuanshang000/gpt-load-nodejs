@@ -5,7 +5,8 @@
     "description":  "Node.js refactor of gpt-load backend",
     "main":  "dist/index.js",
     "scripts":  {
-                    "dev":  "tsx watch src/index.ts",
+                    "dev":  "npm run build:web && npm run dev:api",
+                    "dev:api":  "tsx watch src/index.ts",
                     "dev:web":  "npm --prefix web run dev",
                     "build":  "tsc -p tsconfig.json",
                     "build:web":  "npm --prefix web run build",
@@ -13,7 +14,7 @@
                     "start":  "node dist/index.js",
                     "migrate-keys":  "tsx src/index.ts migrate-keys",
                     "typecheck":  "tsc -p tsconfig.json --noEmit",
-                    "dev:all":  "concurrently -n api,web -c green,blue \"npm run dev\" \"npm run dev:web\""
+                    "dev:all":  "concurrently -n api,web -c green,blue \"npm run dev:api\" \"npm run dev:web\""
                 },
     "dependencies":  {
                          "@fastify/cors":  "^11.1.0",

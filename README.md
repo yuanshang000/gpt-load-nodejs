@@ -59,10 +59,18 @@ cp .env.example .env
 npm install
 ```
 
-3. 开发运行
+3. 开发运行（单端口，推荐）
 
 ```bash
 npm run dev
+```
+
+说明：该命令会先构建前端 `web/dist`，再启动后端（仅 `3001` 一个端口）。
+
+如需前端热更新双端口联调（可选）：
+
+```bash
+npm run dev:all
 ```
 
 4. 构建
