@@ -8,6 +8,12 @@
 - Single-port static mode: `npm run dev:single`
   - builds `web/dist` first, then serves everything from `3001`
 
+## Bolt deployment notes
+
+- Use Node `20.x` (Node 22 on Linux often misses prebuilt `better-sqlite3` bindings)
+- Run single-port mode on Bolt: `npm run dev:bolt`
+- `dev:web`/`build:web` now auto-install `web` dependencies before running
+
 ## Latest parity updates
 
 - Added compatibility route: `/proxy/:group_name/api/integration/info`
