@@ -36,13 +36,24 @@ jobs:
       - name: Install web dependencies
         run: npm --prefix web ci
 
-      - name: Rebuild better-sqlite3 for Linux x64 Node22
+      - name: Rebuild all root native modules from source
+        run: npm rebuild --build-from-source
+
+      - name: Rebuild all web native modules from source
+        run: npm --prefix web rebuild --build-from-source
+
+      - name: Ensure better-sqlite3 built from source
         run: npm rebuild better-sqlite3 --build-from-source
 
-      - name: Verify better-sqlite3 native binary
+      - name: Verify native binaries (root + web)
         run: |
           set -e
+          echo "[root native modules]"
           find node_modules/better-sqlite3 -name "*.node" -print
+          echo "[all root *.node files]"
+          find node_modules -name "*.node" -print || true
+          echo "[all web *.node files]"
+          find web/node_modules -name "*.node" -print || true
 
       - name: Typecheck
         run: npm run typecheck
@@ -57,12 +68,12 @@ jobs:
         run: |
           mkdir -p release
           cp -r dist release/dist
-          cp -r web/dist release/web-dist
+          cp -r web release/web
           cp -r node_modules release/node_modules
-          cp -r web/node_modules release/web-node_modules
           cp package.json package-lock.json README.md .env.example release/
-          cp web/package.json web/package-lock.json release/
+          if [ -f tsconfig.json ]; then cp tsconfig.json release/; fi
           if [ -d data ]; then cp -r data release/data; fi
+          if [ -f .nvmrc ]; then cp .nvmrc release/; fi
           tar -czf gpt-load-nodejs-linux-x64-node22.tgz release
 
       - name: Upload artifact (deploy bundle)
