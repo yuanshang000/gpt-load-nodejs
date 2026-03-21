@@ -1,5 +1,13 @@
 # gpt-load-nodejs
 
+## Dev modes
+
+- Default (dual-port HMR): `npm run dev`
+  - API: `http://127.0.0.1:3001`
+  - Web (Vite): `http://127.0.0.1:5173`
+- Single-port static mode: `npm run dev:single`
+  - builds `web/dist` first, then serves everything from `3001`
+
 ## Latest parity updates
 
 - Added compatibility route: `/proxy/:group_name/api/integration/info`
